@@ -86,6 +86,9 @@ public:
 
     iter = parsed_options.find("reuse-objects");
     reuse_objects_ = (iter != parsed_options.end());
+      
+    iter = parsed_options.find("future-iface");
+    future_iface_ = (iter != parsed_options.end());
 
     out_dir_base_ = (bean_style_ ? "gen-javabean" : "gen-java");
   }
@@ -152,6 +155,7 @@ public:
 
   void generate_service_interface (t_service* tservice);
   void generate_service_async_interface(t_service* tservice);
+  void generate_service_future_interface(t_service* tservice);
   void generate_service_helpers   (t_service* tservice);
   void generate_service_client    (t_service* tservice);
   void generate_service_async_client(t_service* tservice);
@@ -272,6 +276,7 @@ public:
   std::string declare_field(t_field* tfield, bool init=false, bool comment=false);
   std::string function_signature(t_function* tfunction, std::string prefix="");
   std::string function_signature_async(t_function* tfunction, bool use_base_method = false, std::string prefix="");
+  std::string function_signature_future(t_function* tfunction, std::string prefix = "");
   std::string argument_list(t_struct* tstruct, bool include_types = true);
   std::string async_function_call_arglist(t_function* tfunc, bool use_base_method = true, bool include_types = true);
   std::string async_argument_list(t_function* tfunct, t_struct* tstruct, t_type* ttype, bool include_types=false);
@@ -315,6 +320,9 @@ public:
   bool java5_;
   bool sorted_containers_;
   bool reuse_objects_;
+
+  // Generate FutureIface (based on CompletableFuture)
+  bool future_iface_;
 };
 
 
@@ -365,10 +373,15 @@ string t_java_generator::java_package() {
 string t_java_generator::java_type_imports() {
   string hash_builder;
   string tree_set_and_map;
+  string completable_future;
   if (sorted_containers_) {
     tree_set_and_map = string() + 
       "import java.util.TreeSet;\n" +
       "import java.util.TreeMap;\n";
+  }
+    
+  if (future_iface_) {
+    completable_future = string() + "import java.util.concurrent.CompletableFuture;\n";
   }
 
   return
@@ -397,6 +410,7 @@ string t_java_generator::java_type_imports() {
     "import java.util.BitSet;\n" +
     "import java.nio.ByteBuffer;\n"
     "import java.util.Arrays;\n" +
+    completable_future +
     "import javax.annotation.Generated;\n" +
     "import org.slf4j.Logger;\n" +
     "import org.slf4j.LoggerFactory;\n\n";
@@ -2491,6 +2505,9 @@ void t_java_generator::generate_service(t_service* tservice) {
   // Generate the three main parts of the service
   generate_service_interface(tservice);
   generate_service_async_interface(tservice);
+  if (future_iface_) {
+    generate_service_future_interface(tservice);
+  }
   generate_service_client(tservice);
   generate_service_async_client(tservice);
   generate_service_server(tservice);
@@ -2549,6 +2566,24 @@ void t_java_generator::generate_service_async_interface(t_service* tservice) {
   f_service_ << indent() << "}" << endl << endl;
 }
 
+void t_java_generator::generate_service_future_interface(t_service* tservice) {
+  string extends = "";
+  string extends_iface = "";
+  if (tservice->get_extends() != NULL) {
+    extends = type_name(tservice->get_extends());
+    extends_iface = " extends " + extends + " .FutureIface";
+  }
+
+  f_service_ << indent() << "public interface FutureIface" << extends_iface << " {" << endl << endl;
+  indent_up();
+  vector<t_function*> functions = tservice->get_functions();
+  vector<t_function*>::iterator f_iter;
+  for (f_iter = functions.begin(); f_iter != functions.end(); ++f_iter) {
+    indent(f_service_) << function_signature_future(*f_iter) << ";" << endl << endl;
+  }
+  indent_down();
+  f_service_ << indent() << "}" << endl << endl;
+}
 
 /**
  * Generates structs for all the service args and return types
@@ -3926,6 +3961,20 @@ string t_java_generator::function_signature_async(t_function* tfunction, bool us
   return result;
 }
 
+/**
+ * Renders a function signature of the form 'CompletableFuture<Type> name(args)'
+ *
+ * @param tfunction Function definition
+ * @return String of rendered function definition
+ */
+string t_java_generator::function_signature_future(t_function* tfunction, string prefix) {
+  t_type* ttype = tfunction->get_returntype();
+  std::string return_type = type_name(ttype, true);
+  std::string fn_name = get_rpc_method_name(tfunction->get_name());
+  std::string arg_list = argument_list(tfunction->get_arglist());
+  return "CompletableFuture<" + return_type + "> " + prefix + fn_name + "(" + arg_list + ")";
+}
+
 string t_java_generator::async_function_call_arglist(t_function* tfunc, bool use_base_method, bool include_types) {
   (void) use_base_method;
   std::string arglist = "";
@@ -4817,6 +4866,7 @@ THRIFT_REGISTER_GENERATOR(java, "Java",
 "    android_legacy:  Do not use java.io.IOException(throwable) (available for Android 2.3 and above).\n"
 "    java5:           Generate Java 1.5 compliant code (includes android_legacy flag).\n"
 "    reuse-objects:   Data objects will not be allocated, but existing instances will be used (read and write).\n"
+"    future-iface:    An asynchronous interface based on Java8 CompletableFuture will be generated\n"
 "    sorted_containers:\n"
 "                     Use TreeSet/TreeMap instead of HashSet/HashMap as a implementation of set/map.\n"
 )
