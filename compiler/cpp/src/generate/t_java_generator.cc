@@ -276,8 +276,9 @@ public:
   std::string declare_field(t_field* tfield, bool init=false, bool comment=false);
   std::string function_signature(t_function* tfunction, std::string prefix="");
   std::string function_signature_async(t_function* tfunction, bool use_base_method = false, std::string prefix="");
-  std::string function_signature_future(t_function* tfunction, std::string prefix = "");
+  std::string function_signature_future(t_function* tfunction, int params_futures_mask, std::string prefix = "");
   std::string argument_list(t_struct* tstruct, bool include_types = true);
+  std::string futures_argument_list(t_struct* tstruct, int params_futures_mask);
   std::string async_function_call_arglist(t_function* tfunc, bool use_base_method = true, bool include_types = true);
   std::string async_argument_list(t_function* tfunct, t_struct* tstruct, t_type* ttype, bool include_types=false);
   std::string type_to_enum(t_type* ttype);
@@ -2579,7 +2580,11 @@ void t_java_generator::generate_service_future_interface(t_service* tservice) {
   vector<t_function*> functions = tservice->get_functions();
   vector<t_function*>::iterator f_iter;
   for (f_iter = functions.begin(); f_iter != functions.end(); ++f_iter) {
-    indent(f_service_) << function_signature_future(*f_iter) << ";" << endl << endl;
+    t_function* t_f = *f_iter;
+    int mask;
+    for (mask = 0; mask < (1 << t_f->get_arglist()->get_members().size()); mask++) {
+      indent(f_service_) << function_signature_future(t_f, mask) << ";" << endl << endl;
+    }
   }
   indent_down();
   f_service_ << indent() << "}" << endl << endl;
@@ -3967,13 +3972,41 @@ string t_java_generator::function_signature_async(t_function* tfunction, bool us
  * @param tfunction Function definition
  * @return String of rendered function definition
  */
-string t_java_generator::function_signature_future(t_function* tfunction, string prefix) {
+string t_java_generator::function_signature_future(t_function* tfunction, int params_futures_mask, string prefix) {
   t_type* ttype = tfunction->get_returntype();
   std::string return_type = type_name(ttype, true);
   std::string fn_name = get_rpc_method_name(tfunction->get_name());
-  std::string arg_list = argument_list(tfunction->get_arglist());
+  std::string arg_list = futures_argument_list(tfunction->get_arglist(), params_futures_mask);
   return "CompletableFuture<" + return_type + "> " + prefix + fn_name + "(" + arg_list + ")";
 }
+
+/**
+ * Renders a comma separated field list, with type names. The types are
+ * modified to use a future of the argument type according to the mask
+ * given.
+ */
+string t_java_generator::futures_argument_list(t_struct* tstruct, int params_futures_mask) {
+  string result = "";
+
+  const vector<t_field*>& fields = tstruct->get_members();
+  vector<t_field*>::const_iterator f_iter;
+  int i = 0;
+  for (f_iter = fields.begin(); f_iter != fields.end(); ++f_iter, ++i) {
+    if (i > 0) {
+      result += ", ";
+    }
+    string type;
+    if (params_futures_mask & (1 << i)) {
+      // The mask indicates to use a future for this argument
+      type = "CompletableFuture<" + type_name((*f_iter)->get_type(), true) + ">";
+    } else {
+      type = type_name((*f_iter)->get_type());
+    }
+    result += type + " " + (*f_iter)->get_name();
+  }
+  return result;
+}
+
 
 string t_java_generator::async_function_call_arglist(t_function* tfunc, bool use_base_method, bool include_types) {
   (void) use_base_method;
