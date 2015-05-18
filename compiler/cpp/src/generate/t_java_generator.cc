@@ -2585,8 +2585,8 @@ void t_java_generator::generate_service_future_interface(t_service* tservice) {
   vector<t_function*>::iterator f_iter;
   for (f_iter = functions.begin(); f_iter != functions.end(); ++f_iter) {
     t_function* t_f = *f_iter;
-    int mask;
     if (mixed_futures_) {
+      int mask;
       for (mask = 0; mask < (1 << t_f->get_arglist()->get_members().size()); mask++) {
         indent(f_service_) << function_signature_future(t_f, mask) << ";" << endl << endl;
       }
@@ -3988,6 +3988,21 @@ string t_java_generator::function_signature_future(t_function* tfunction, int pa
   return "CompletableFuture<" + return_type + "> " + prefix + fn_name + "(" + arg_list + ")";
 }
 
+string t_java_generator::async_function_call_arglist(t_function* tfunc, bool use_base_method, bool include_types) {
+  (void) use_base_method;
+  std::string arglist = "";
+  if (tfunc->get_arglist()->get_members().size() > 0) {
+    arglist = argument_list(tfunc->get_arglist(), include_types) + ", ";
+  }
+
+  if (include_types) {
+    arglist += "org.apache.thrift.async.AsyncMethodCallback ";
+  }
+  arglist += "resultHandler";
+
+  return arglist;
+}
+
 /**
  * Renders a comma separated field list, with type names. The types are
  * modified to use a future of the argument type according to the mask
@@ -4014,22 +4029,6 @@ string t_java_generator::argument_list(t_struct* tstruct, bool include_types, in
     result += (*f_iter)->get_name();
   }
   return result;
-}
-
-
-string t_java_generator::async_function_call_arglist(t_function* tfunc, bool use_base_method, bool include_types) {
-  (void) use_base_method;
-  std::string arglist = "";
-  if (tfunc->get_arglist()->get_members().size() > 0) {
-    arglist = argument_list(tfunc->get_arglist(), include_types) + ", ";
-  }
-
-  if (include_types) {
-    arglist += "org.apache.thrift.async.AsyncMethodCallback ";
-  }
-  arglist += "resultHandler";
-
-  return arglist;
 }
 
 string t_java_generator::async_argument_list(t_function* tfunct, t_struct* tstruct, t_type* ttype, bool include_types) {
