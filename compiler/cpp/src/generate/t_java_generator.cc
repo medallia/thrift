@@ -90,6 +90,9 @@ public:
     iter = parsed_options.find("future-iface");
     future_iface_ = (iter != parsed_options.end());
 
+    iter = parsed_options.find("mixed-futures");
+    mixed_futures_ = (iter != parsed_options.end());
+
     out_dir_base_ = (bean_style_ ? "gen-javabean" : "gen-java");
   }
 
@@ -277,8 +280,7 @@ public:
   std::string function_signature(t_function* tfunction, std::string prefix="");
   std::string function_signature_async(t_function* tfunction, bool use_base_method = false, std::string prefix="");
   std::string function_signature_future(t_function* tfunction, int params_futures_mask, std::string prefix = "");
-  std::string argument_list(t_struct* tstruct, bool include_types = true);
-  std::string futures_argument_list(t_struct* tstruct, int params_futures_mask);
+  std::string argument_list(t_struct* tstruct, bool include_types = true, int params_futures_mask = 0);
   std::string async_function_call_arglist(t_function* tfunc, bool use_base_method = true, bool include_types = true);
   std::string async_argument_list(t_function* tfunct, t_struct* tstruct, t_type* ttype, bool include_types=false);
   std::string type_to_enum(t_type* ttype);
@@ -324,6 +326,7 @@ public:
 
   // Generate FutureIface (based on CompletableFuture)
   bool future_iface_;
+  bool mixed_futures_;
 };
 
 
@@ -383,6 +386,7 @@ string t_java_generator::java_type_imports() {
     
   if (future_iface_) {
     completable_future = string() + "import java.util.concurrent.CompletableFuture;\n";
+    completable_future = string() + "import java.util.concurrent.Future;\n";
   }
 
   return
@@ -2582,8 +2586,12 @@ void t_java_generator::generate_service_future_interface(t_service* tservice) {
   for (f_iter = functions.begin(); f_iter != functions.end(); ++f_iter) {
     t_function* t_f = *f_iter;
     int mask;
-    for (mask = 0; mask < (1 << t_f->get_arglist()->get_members().size()); mask++) {
-      indent(f_service_) << function_signature_future(t_f, mask) << ";" << endl << endl;
+    if (mixed_futures_) {
+      for (mask = 0; mask < (1 << t_f->get_arglist()->get_members().size()); mask++) {
+        indent(f_service_) << function_signature_future(t_f, mask) << ";" << endl << endl;
+      }
+    } else {
+      indent(f_service_) << function_signature_future(t_f, 0) << ";" << endl << endl;
     }
   }
   indent_down();
@@ -3976,7 +3984,7 @@ string t_java_generator::function_signature_future(t_function* tfunction, int pa
   t_type* ttype = tfunction->get_returntype();
   std::string return_type = type_name(ttype, true);
   std::string fn_name = get_rpc_method_name(tfunction->get_name());
-  std::string arg_list = futures_argument_list(tfunction->get_arglist(), params_futures_mask);
+  std::string arg_list = argument_list(tfunction->get_arglist(), true, params_futures_mask);
   return "CompletableFuture<" + return_type + "> " + prefix + fn_name + "(" + arg_list + ")";
 }
 
@@ -3985,7 +3993,7 @@ string t_java_generator::function_signature_future(t_function* tfunction, int pa
  * modified to use a future of the argument type according to the mask
  * given.
  */
-string t_java_generator::futures_argument_list(t_struct* tstruct, int params_futures_mask) {
+string t_java_generator::argument_list(t_struct* tstruct, bool include_types, int params_futures_mask) {
   string result = "";
 
   const vector<t_field*>& fields = tstruct->get_members();
@@ -3995,14 +4003,15 @@ string t_java_generator::futures_argument_list(t_struct* tstruct, int params_fut
     if (i > 0) {
       result += ", ";
     }
-    string type;
-    if (params_futures_mask & (1 << i)) {
-      // The mask indicates to use a future for this argument
-      type = "CompletableFuture<" + type_name((*f_iter)->get_type(), true) + ">";
-    } else {
-      type = type_name((*f_iter)->get_type());
+    if (include_types) {
+      if (params_futures_mask & (1 << i)) {
+        // The mask indicates to use a future for this argument
+        result += "Future<" + type_name((*f_iter)->get_type(), true) + "> ";
+      } else {
+        result += type_name((*f_iter)->get_type()) + " ";
+      }
     }
-    result += type + " " + (*f_iter)->get_name();
+    result += (*f_iter)->get_name();
   }
   return result;
 }
@@ -4021,29 +4030,6 @@ string t_java_generator::async_function_call_arglist(t_function* tfunc, bool use
   arglist += "resultHandler";
 
   return arglist;
-}
-
-/**
- * Renders a comma separated field list, with type names
- */
-string t_java_generator::argument_list(t_struct* tstruct, bool include_types) {
-  string result = "";
-
-  const vector<t_field*>& fields = tstruct->get_members();
-  vector<t_field*>::const_iterator f_iter;
-  bool first = true;
-  for (f_iter = fields.begin(); f_iter != fields.end(); ++f_iter) {
-    if (first) {
-      first = false;
-    } else {
-      result += ", ";
-    }
-    if (include_types) {
-      result += type_name((*f_iter)->get_type()) + " ";
-    }
-    result += (*f_iter)->get_name();
-  }
-  return result;
 }
 
 string t_java_generator::async_argument_list(t_function* tfunct, t_struct* tstruct, t_type* ttype, bool include_types) {
