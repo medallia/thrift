@@ -326,6 +326,7 @@ public:
 
   // Generate FutureIface (based on CompletableFuture)
   bool future_iface_;
+  // Generate all the possible combination of futures in the FutureIface
   bool mixed_futures_;
 };
 
@@ -4884,7 +4885,8 @@ THRIFT_REGISTER_GENERATOR(java, "Java",
 "    android_legacy:  Do not use java.io.IOException(throwable) (available for Android 2.3 and above).\n"
 "    java5:           Generate Java 1.5 compliant code (includes android_legacy flag).\n"
 "    reuse-objects:   Data objects will not be allocated, but existing instances will be used (read and write).\n"
-"    future-iface:    An asynchronous interface based on Java8 CompletableFuture will be generated\n"
+"    future-iface:    An asynchronous interface based on Java8 CompletableFuture will be generated.\n"
+"    mixed-futures:   Generates all method combinations based on Future parameters for the future-iface.\n"
 "    sorted_containers:\n"
 "                     Use TreeSet/TreeMap instead of HashSet/HashMap as a implementation of set/map.\n"
 )
