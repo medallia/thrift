@@ -90,6 +90,9 @@ public:
     iter = parsed_options.find("future-iface");
     future_iface_ = (iter != parsed_options.end());
 
+    iter = parsed_options.find("mixed-futures");
+    mixed_futures_ = (iter != parsed_options.end());
+
     out_dir_base_ = (bean_style_ ? "gen-javabean" : "gen-java");
   }
 
@@ -276,8 +279,8 @@ public:
   std::string declare_field(t_field* tfield, bool init=false, bool comment=false);
   std::string function_signature(t_function* tfunction, std::string prefix="");
   std::string function_signature_async(t_function* tfunction, bool use_base_method = false, std::string prefix="");
-  std::string function_signature_future(t_function* tfunction, std::string prefix = "");
-  std::string argument_list(t_struct* tstruct, bool include_types = true);
+  std::string function_signature_future(t_function* tfunction, int params_futures_mask, std::string prefix = "");
+  std::string argument_list(t_struct* tstruct, bool include_types = true, int params_futures_mask = 0);
   std::string async_function_call_arglist(t_function* tfunc, bool use_base_method = true, bool include_types = true);
   std::string async_argument_list(t_function* tfunct, t_struct* tstruct, t_type* ttype, bool include_types=false);
   std::string type_to_enum(t_type* ttype);
@@ -323,6 +326,8 @@ public:
 
   // Generate FutureIface (based on CompletableFuture)
   bool future_iface_;
+  // Generate all the possible combination of futures in the FutureIface
+  bool mixed_futures_;
 };
 
 
@@ -382,6 +387,7 @@ string t_java_generator::java_type_imports() {
     
   if (future_iface_) {
     completable_future = string() + "import java.util.concurrent.CompletableFuture;\n";
+    completable_future = string() + "import java.util.concurrent.Future;\n";
   }
 
   return
@@ -2579,7 +2585,15 @@ void t_java_generator::generate_service_future_interface(t_service* tservice) {
   vector<t_function*> functions = tservice->get_functions();
   vector<t_function*>::iterator f_iter;
   for (f_iter = functions.begin(); f_iter != functions.end(); ++f_iter) {
-    indent(f_service_) << function_signature_future(*f_iter) << ";" << endl << endl;
+    t_function* t_f = *f_iter;
+    if (mixed_futures_) {
+      int mask;
+      for (mask = 0; mask < (1 << t_f->get_arglist()->get_members().size()); mask++) {
+        indent(f_service_) << function_signature_future(t_f, mask) << ";" << endl << endl;
+      }
+    } else {
+      indent(f_service_) << function_signature_future(t_f, 0) << ";" << endl << endl;
+    }
   }
   indent_down();
   f_service_ << indent() << "}" << endl << endl;
@@ -3967,11 +3981,11 @@ string t_java_generator::function_signature_async(t_function* tfunction, bool us
  * @param tfunction Function definition
  * @return String of rendered function definition
  */
-string t_java_generator::function_signature_future(t_function* tfunction, string prefix) {
+string t_java_generator::function_signature_future(t_function* tfunction, int params_futures_mask, string prefix) {
   t_type* ttype = tfunction->get_returntype();
   std::string return_type = type_name(ttype, true);
   std::string fn_name = get_rpc_method_name(tfunction->get_name());
-  std::string arg_list = argument_list(tfunction->get_arglist());
+  std::string arg_list = argument_list(tfunction->get_arglist(), true, params_futures_mask);
   return "CompletableFuture<" + return_type + "> " + prefix + fn_name + "(" + arg_list + ")";
 }
 
@@ -3991,22 +4005,27 @@ string t_java_generator::async_function_call_arglist(t_function* tfunc, bool use
 }
 
 /**
- * Renders a comma separated field list, with type names
+ * Renders a comma separated field list, with type names. The types are
+ * modified to use a future of the argument type according to the mask
+ * given.
  */
-string t_java_generator::argument_list(t_struct* tstruct, bool include_types) {
+string t_java_generator::argument_list(t_struct* tstruct, bool include_types, int params_futures_mask) {
   string result = "";
 
   const vector<t_field*>& fields = tstruct->get_members();
   vector<t_field*>::const_iterator f_iter;
-  bool first = true;
-  for (f_iter = fields.begin(); f_iter != fields.end(); ++f_iter) {
-    if (first) {
-      first = false;
-    } else {
+  int i = 0;
+  for (f_iter = fields.begin(); f_iter != fields.end(); ++f_iter, ++i) {
+    if (i > 0) {
       result += ", ";
     }
     if (include_types) {
-      result += type_name((*f_iter)->get_type()) + " ";
+      if (params_futures_mask & (1 << i)) {
+        // The mask indicates to use a future for this argument
+        result += "Future<" + type_name((*f_iter)->get_type(), true) + "> ";
+      } else {
+        result += type_name((*f_iter)->get_type()) + " ";
+      }
     }
     result += (*f_iter)->get_name();
   }
@@ -4866,7 +4885,8 @@ THRIFT_REGISTER_GENERATOR(java, "Java",
 "    android_legacy:  Do not use java.io.IOException(throwable) (available for Android 2.3 and above).\n"
 "    java5:           Generate Java 1.5 compliant code (includes android_legacy flag).\n"
 "    reuse-objects:   Data objects will not be allocated, but existing instances will be used (read and write).\n"
-"    future-iface:    An asynchronous interface based on Java8 CompletableFuture will be generated\n"
+"    future-iface:    An asynchronous interface based on Java8 CompletableFuture will be generated.\n"
+"    mixed-futures:   Generates all method combinations based on Future parameters for the future-iface.\n"
 "    sorted_containers:\n"
 "                     Use TreeSet/TreeMap instead of HashSet/HashMap as a implementation of set/map.\n"
 )
