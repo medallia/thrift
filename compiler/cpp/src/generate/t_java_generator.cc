@@ -387,7 +387,7 @@ string t_java_generator::java_type_imports() {
     
   if (future_iface_) {
     completable_future = string() + "import java.util.concurrent.CompletableFuture;\n";
-    completable_future = string() + "import java.util.concurrent.Future;\n";
+    completable_future += "import java.util.concurrent.Future;\n";
   }
 
   return
